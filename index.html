@@ -105,9 +105,20 @@ th{color:var(--mut);font-weight:600;position:sticky;top:0;background:var(--card)
   </section>
 
   <section id="t-proj" class="hide">
-    <div class="chartbox"><h3>Тикетов на 1000 ключей за 30 дней · по проектам</h3>
+    <div class="chartbox">
+      <h3 style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span>Тикетов на 1000 ключей · по проектам</span>
+        <span style="margin-left:auto;display:flex;gap:8px;align-items:center">
+          <input type="date" id="pfrom" onchange="render()">
+          <span style="color:var(--mut)">—</span>
+          <input type="date" id="pto" onchange="render()">
+          <select id="psort" onchange="render()">
+            <option value="per1000">сорт.: тик/1000</option>
+            <option value="opened">сорт.: тикеты</option>
+            <option value="name">сорт.: название</option>
+          </select>
+        </span></h3>
       <div id="projbars" style="position:relative"><canvas id="c-proj"></canvas></div>
-      <p class="note">Только проекты со 100+ активных ключей. Цвет: зелёный — не выше медианы по сети, жёлтый — до ×2, красный — выше ×2.</p>
+      <p class="note" id="proj-legend"></p>
     </div>
     <div class="chartbox">
       <h3 style="display:flex;gap:10px;align-items:center"><span id="proj-title">Проекты за 30 дней</span>
@@ -121,7 +132,7 @@ th{color:var(--mut);font-weight:600;position:sticky;top:0;background:var(--card)
 </div>
 
 <script>
-let D=null, charts={}, dynAll=false, projAll=false, projSort={k:"opened30d",d:-1};
+let D=null, charts={}, dynAll=false, projAll=false, projSort={k:"opened",d:-1};
 function sortBy(k){projSort=projSort.k===k?{k,d:-projSort.d}:{k,d:-1};render();}
 const $=id=>document.getElementById(id);
 const b64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
@@ -269,34 +280,66 @@ function render(){
     options:{scales:{y:{suggestedMin:80,suggestedMax:120},y2:{position:"right",grid:{display:false},beginAtZero:true}},plugins:{legend:{labels:{color:"#8b96ab",boxWidth:18}}}}});
 
   // ---------- Проекты ----------
-  const pr=D.projects_30d, sp=D.sla_projects;
-  if(pr){
-    const lastIdx=sp&&sp.days.length?sp.days.length-1:-1;
-    // бар-чарт: тик/1000 по проектам с 100+ ключей, сортировка по убыванию
-    const bars=pr.rows.filter(r=>r.activeKeys>=100&&r.per1000_30d!=null).sort((a,b)=>b.per1000_30d-a.per1000_30d);
-    const netMed=med(bars.map(b=>b.per1000_30d));
+  const pdm=D.projects_daily, ka=D.keys_by_app, sp=D.sla_projects, pr30=D.projects_30d;
+  if(pdm&&pdm.days.length){
+    const dmin=pdm.days[0], dmax=pdm.days[pdm.days.length-1];
+    const pf=$("pfrom"), pt=$("pto");
+    pf.min=dmin;pf.max=dmax;pt.min=dmin;pt.max=dmax;
+    if(!pt.value)pt.value=dmax;
+    if(!pf.value){const d=new Date(pt.value);d.setDate(d.getDate()-29);pf.value=d.toISOString().slice(0,10)<dmin?dmin:d.toISOString().slice(0,10);}
+    const from=pf.value, to=pt.value;
+    const i0=pdm.days.findIndex(d=>d>=from), i1x=pdm.days.findLastIndex(d=>d<=to);
+    const span=i1x-i0+1;
+    const keysNow={}; if(pr30)pr30.rows.forEach(x=>keysNow[x.project]=x.activeKeys);
+    const avgKeys=p=>{ // средние ключи за период: реальные по аппке, иначе текущие
+      if(ka&&ka.projects[p]){const vs=ka.days.map((d,j)=>d>=from&&d<=to?ka.projects[p][j]:null).filter(x=>x!=null);
+        if(vs.length)return vs.reduce((a,x)=>a+x,0)/vs.length;}
+      return keysNow[p]||null;};
+    let rows2=Object.keys(pdm.projects).map(p=>{
+      const o=pdm.projects[p].opened.slice(i0,i1x+1).reduce((a,x)=>a+x,0);
+      const c=pdm.projects[p].closed.slice(i0,i1x+1).reduce((a,x)=>a+x,0);
+      // предыдущий период той же длины
+      const p0=Math.max(0,i0-span);
+      const prev=i0>0?pdm.projects[p].opened.slice(p0,i0).reduce((a,x)=>a+x,0):null;
+      const k=avgKeys(p);
+      return {project:p,opened:o,closed:c,prev,keys:k?Math.round(k):null,
+              per1000:k&&o?+(o*1000/k).toFixed(1):null};
+    }).filter(x=>x.opened>0);
+    const totalO=rows2.reduce((a,x)=>a+x.opened,0)||1;
+    rows2.forEach(x=>{x.share=+(x.opened*100/totalO).toFixed(1);
+      x._dl=x.prev?Math.round((x.opened-x.prev)*100/x.prev):null;
+      const li=sp&&sp.days.length?sp.days.length-1:-1;
+      x._bk=li>=0&&sp.projects[x.project]?sp.projects[x.project][li]:null;});
+    // три зоны вокруг медианы (по проектам со 100+ ключей)
+    const sig=rows2.filter(x=>x.keys>=100&&x.per1000!=null);
+    const m=med(sig.map(x=>x.per1000));
+    const zone=v=>v==null||m==null?"":v>m*1.3?"bad":v<m*0.8?"good":"norm";
+    const zColor={good:"#3fbf7fcc",norm:"#8b96ab99",bad:"#e05d5dcc","":"#8b96ab55"};
+    $("proj-legend").innerHTML=m==null?"":`Проекты со 100+ ключей. Медиана сети: <b>${m}</b>/1000. Зоны: <span class="pos">лучше нормы</span> (< ${(m*0.8).toFixed(0)}) · <span style="color:var(--mut)">норма</span> (${(m*0.8).toFixed(0)}–${(m*1.3).toFixed(0)}) · <span class="neg">хуже нормы</span> (> ${(m*1.3).toFixed(0)})`;
+    const ps=$("psort").value;
+    let bars=[...sig];
+    if(ps==="per1000")bars.sort((a,b)=>b.per1000-a.per1000);
+    else if(ps==="opened")bars.sort((a,b)=>b.opened-a.opened);
+    else bars.sort((a,b)=>a.project.localeCompare(b.project));
     $("projbars").style.height=Math.max(120,bars.length*24+40)+"px";
-    chart("c-proj",{type:"bar",data:{labels:bars.map(b=>b.project),datasets:[{label:"Тик/1000 за 30д",
-      data:bars.map(b=>b.per1000_30d),
-      backgroundColor:bars.map(b=>b.per1000_30d>netMed*2?"#e05d5dcc":b.per1000_30d>netMed?"#e8a33dcc":"#3fbf7fcc"),
-      borderRadius:3}]},
+    chart("c-proj",{type:"bar",data:{labels:bars.map(b=>b.project),datasets:[{
+      data:bars.map(b=>b.per1000),
+      backgroundColor:bars.map(b=>zColor[zone(b.per1000)]),borderRadius:3}]},
       options:{indexAxis:"y",maintainAspectRatio:false,
         scales:{x:{beginAtZero:true},y:{ticks:{autoSkip:false,color:"#e8ecf4"}}},
-        plugins:{legend:{display:false}}}});
-    // таблица: фильтр + сортировка по клику на заголовок
-    $("proj-title").textContent=`Проекты за 30 дней (${pr.range})`;
+        plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`тик/1000: ${c.raw} · тикетов: ${fmt(bars[c.dataIndex].opened)} · ключей: ${fmt(bars[c.dataIndex].keys)}`}}}}});
+    // таблица
+    $("proj-title").textContent=`Проекты: ${from} — ${to}`;
     const f=($("pfilter").value||"").toLowerCase().trim();
-    let rows2=pr.rows.filter(r=>!f||f.split(",").some(x=>r.project.includes(x.trim())));
-    rows2=[...rows2].map(r=>{r._dl=r.openedPrev30d?Math.round((r.opened30d-r.openedPrev30d)*100/r.openedPrev30d):null;
-      r._bk=lastIdx>=0&&sp.projects[r.project]?sp.projects[r.project][lastIdx]:null;return r;});
+    let trows=rows2.filter(x=>!f||f.split(",").some(q=>x.project.includes(q.trim())));
     const sk=projSort.k;
-    rows2.sort((a,b)=>{const va=a[sk],vb=b[sk];if(va==null)return 1;if(vb==null)return -1;
+    trows.sort((a,b)=>{const va=a[sk],vb=b[sk];if(va==null)return 1;if(vb==null)return -1;
       return (typeof va==="string"?va.localeCompare(vb):va-vb)*projSort.d;});
-    const prows=(projAll||f)?rows2:rows2.slice(0,15);
-    $("proj-more").textContent=projAll?"свернуть":"показать все ("+rows2.length+")";
+    const prows=(projAll||f)?trows:trows.slice(0,15);
+    $("proj-more").textContent=projAll?"свернуть":"показать все ("+trows.length+")";
     const hd=(k,t)=>`<th onclick="sortBy('${k}')" style="cursor:pointer">${t}${projSort.k===k?(projSort.d<0?" ↓":" ↑"):""}</th>`;
-    $("tbl-proj").innerHTML="<tr>"+hd("project","Проект")+hd("opened30d","Тикетов 30д")+hd("sharePct","Доля")+hd("_dl","Δ к пред. 30д")+hd("per1000_30d","Тик/1000")+hd("_bk","Бэклог сейчас")+"</tr>"+
-      prows.map(r=>`<tr><td>${r.project}</td><td>${fmt(r.opened30d)}</td><td>${r.sharePct}%</td><td class="${r._dl>15?"neg":r._dl<-15?"pos":""}">${r._dl==null?"—":(r._dl>0?"+":"")+r._dl+"%"}</td><td><b>${r.per1000_30d??"—"}</b></td><td>${fmt(r._bk)}</td></tr>`).join("");
+    $("tbl-proj").innerHTML="<tr>"+hd("project","Проект")+hd("opened","Тикетов")+hd("share","Доля")+hd("_dl","Δ к пред. периоду")+hd("keys","Ключей")+hd("per1000","Тик/1000")+hd("_bk","Бэклог сейчас")+"</tr>"+
+      prows.map(x=>`<tr><td>${x.project}</td><td>${fmt(x.opened)}</td><td>${x.share}%</td><td class="${x._dl>15?"neg":x._dl<-15?"pos":""}">${x._dl==null?"—":(x._dl>0?"+":"")+x._dl+"%"}</td><td>${fmt(x.keys)}</td><td class="${zone(x.per1000)==="bad"?"neg":zone(x.per1000)==="good"?"pos":""}"><b>${x.per1000??"—"}</b></td><td>${fmt(x._bk)}</td></tr>`).join("");
   }
 }
 </script>
