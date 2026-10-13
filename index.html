@@ -345,7 +345,7 @@ function render(){
       const k=avgKeys(p);
       return {project:p,opened:o,closed:c,prev,keys:k?Math.round(k):null,
               per1000:k&&o?+(o*1000/k).toFixed(1):null};
-    }).filter(x=>x.opened>0);
+    }).filter(x=>x.opened>0||(x.keys&&x.keys>=100));  // крупные проекты видны даже с 0 тикетов — это сигнал мёртвого маппинга
     const totalO=rows2.reduce((a,x)=>a+x.opened,0)||1;
     rows2.forEach(x=>{x.share=+(x.opened*100/totalO).toFixed(1);
       x._dl=x.prev?Math.round((x.opened-x.prev)*100/x.prev):null;
@@ -380,7 +380,7 @@ function render(){
     $("proj-more").textContent=projAll?"свернуть":"показать все ("+trows.length+")";
     const hd=(k,t)=>`<th onclick="sortBy('${k}')" style="cursor:pointer">${t}${projSort.k===k?(projSort.d<0?" ↓":" ↑"):""}</th>`;
     $("tbl-proj").innerHTML="<tr>"+hd("project","Проект")+hd("opened","Тикетов")+hd("share","Доля")+hd("_dl","Δ к пред. периоду")+hd("keys","Ключей")+hd("per1000","Тик/1000")+hd("_bk","Бэклог сейчас")+"</tr>"+
-      prows.map(x=>`<tr><td>${x.project}</td><td>${fmt(x.opened)}</td><td>${x.share}%</td><td class="${x._dl>15?"neg":x._dl<-15?"pos":""}">${x._dl==null?"—":(x._dl>0?"+":"")+x._dl+"%"}</td><td>${fmt(x.keys)}</td><td class="${zone(x.per1000)==="bad"?"neg":zone(x.per1000)==="good"?"pos":""}"><b>${x.per1000??"—"}</b></td><td>${fmt(x._bk)}</td></tr>`).join("");
+      prows.map(x=>`<tr><td>${x.project}${x.opened===0&&x.keys>=100?' <span class="neg" title="0 тикетов при такой базе — проверь Jira-маппинг">⚠</span>':''}</td><td>${fmt(x.opened)}</td><td>${x.share}%</td><td class="${x._dl>15?"neg":x._dl<-15?"pos":""}">${x._dl==null?"—":(x._dl>0?"+":"")+x._dl+"%"}</td><td>${fmt(x.keys)}</td><td class="${zone(x.per1000)==="bad"?"neg":zone(x.per1000)==="good"?"pos":""}"><b>${x.per1000??"—"}</b></td><td>${fmt(x._bk)}</td></tr>`).join("");
   }
 }
 </script>
