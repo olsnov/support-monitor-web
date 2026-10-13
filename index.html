@@ -235,11 +235,24 @@ function render(){
 
   // ---------- Сейчас ----------
   const sn=D.snapshots, nd=D.network_daily, last=nd[nd.length-1];
-  const sLab=[],sOp=[],sBk=[],sTs=[];
+  const sLab=[],sOp=[],sCl=[],sBk=[],sTs=[];
   for(let i=1;i<sn.length;i++){
     const dc=sn[i][2]-sn[i-1][2], dop=(sn[i][1]-sn[i-1][1])+dc;
-    if(dc>=0&&dop>=0&&dc<5000){sLab.push(sn[i][0].slice(5));sOp.push(dop);sBk.push(sn[i][1]);sTs.push(sn[i][0]);}
+    if(dc>=0&&dop>=0&&dc<5000){sLab.push(sn[i][0].slice(5));sOp.push(dop);sCl.push(dc);sBk.push(sn[i][1]);sTs.push(sn[i][0]);}
   }
+  // рабочее окно: часы, в которые реально идут закрытия (детект по снапшотам,
+  // пока истории < 3 суток — консервативно 09–21)
+  const hourCl={}, hourDays={};
+  sTs.forEach((ts,i)=>{const h=+ts.slice(11,13);(hourCl[h]=hourCl[h]||[]).push(sCl[i]);(hourDays[h]=hourDays[h]||new Set()).add(ts.slice(0,10));});
+  const snapDays=new Set(sTs.map(t=>t.slice(0,10))).size;
+  let workHours;
+  if(snapDays>=3){
+    const peak=Math.max(...Object.values(hourCl).map(a=>med(a)||0));
+    workHours=Object.keys(hourCl).filter(h=>(med(hourCl[h])||0)>peak*0.1).map(Number).sort((a,b)=>a-b);
+    if(workHours.length<6)workHours=[9,10,11,12,13,14,15,16,17,18,19,20];
+  }else workHours=[9,10,11,12,13,14,15,16,17,18,19,20];
+  const whpd=workHours.length;
+  const wLabel=(snapDays>=3?"детект ":"")+String(workHours[0]).padStart(2,"0")+"–"+String(workHours[workHours.length-1]+1).padStart(2,"0");
   const cur=sn[sn.length-1], todayStr=cur?cur[0].slice(0,10):"";
   const slotVals={};
   sTs.forEach((ts,i)=>{if(ts.slice(0,10)!==todayStr){const sl=ts.slice(11,13)+":"+(+ts.slice(14,16)>=30?"30":"00");(slotVals[sl]=slotVals[sl]||[]).push(sOp[i]);}});
@@ -255,12 +268,13 @@ function render(){
   const spCls=spike==null?"":spike>=1.8?"bad":spike>=1.3?"wrn":"ok";
   const kpi=[
     ["Поток к норме",spike==null?"—":"×"+spike.toFixed(1),"последние 30 мин vs типичный профиль",spCls],
-    ["Бэклог",fmt(cur?cur[1]:null),(()=>{const t=nd.slice(-7);const c=t.reduce((a,r)=>a+r[2],0);const rate=c/168;return cur&&rate?"≈ "+(cur[1]/rate).toFixed(0)+" ч разгребания ("+rate.toFixed(0)+" закр./ч за 7д)":"";})(),""],
+    ["Бэклог",fmt(cur?cur[1]:null),(()=>{const t=nd.slice(-7);const c=t.reduce((a,r)=>a+r[2],0);const rate=c/(7*whpd);return cur&&rate?"≈ "+(cur[1]/rate).toFixed(0)+" раб. ч разгребания ("+rate.toFixed(0)+" закр./раб.ч, окно "+wLabel+")":"";})(),""],
     ["Открыто сегодня",fmt(opToday),"",""],
     ["Тик/1000 вчера",last?(last[5]??"—"):"—","норма "+(robust(nd.slice(-29,-1).map(r=>r[5]))??"—"),""]];
   $("kpi").innerHTML=kpi.map(([l,v,s,c])=>`<div class="card"><div class="l">${l}</div><div class="v ${c}">${v}</div><div class="s">${s}</div></div>`).join("");
   chart("c-now",{data:{labels:sLab,datasets:[
     {type:"bar",label:"Открыто/30м",data:sOp,backgroundColor:"#4f8ff7aa",borderRadius:3},
+    {type:"bar",label:"Закрыто/30м",data:sCl,backgroundColor:"#3fbf7f66",borderRadius:3},
     {type:"line",label:"Типично",data:sTyp,borderColor:"#8b96ab",borderDash:[5,4],pointRadius:0,borderWidth:1.5},
     {type:"line",label:"Бэклог",data:sBk,yAxisID:"y2",borderColor:"#e8a33d",pointRadius:0,borderWidth:2}]},
     options:{scales:{y:{beginAtZero:true},y2:{position:"right",grid:{display:false}}},plugins:{legend:{labels:{color:"#8b96ab",boxWidth:18}}}}});
@@ -303,7 +317,7 @@ function render(){
   const cr=nd.map(r=>r[7]!=null?+(100*r[7]).toFixed(1):null);
   chart("c-sla",{data:{labels:nd.map(r=>r[0]),datasets:[
     {type:"line",label:"Закрыто/открыто, %",data:cr,borderColor:"#3fbf7f",pointRadius:0,borderWidth:1.8},
-    {type:"line",label:"Бэклог, часов",data:nd.map(r=>r[8]),yAxisID:"y2",borderColor:"#e8a33d",pointRadius:0,borderWidth:1.8}]},
+    {type:"line",label:"Бэклог, раб. часов",data:nd.map(r=>r[8]!=null?+(r[8]*whpd/24).toFixed(1):null),yAxisID:"y2",borderColor:"#e8a33d",pointRadius:0,borderWidth:1.8}]},
     options:{scales:{y:{suggestedMin:80,suggestedMax:120},y2:{position:"right",grid:{display:false},beginAtZero:true}},plugins:{legend:{labels:{color:"#8b96ab",boxWidth:18}}}}});
 
   // ---------- Проекты ----------
