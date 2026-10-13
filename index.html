@@ -191,13 +191,17 @@ function render(){
     if(dc>=0&&dop>=0&&dc<5000){sLab.push(sn[i][0].slice(5));sOp.push(dop);sCl.push(dc);sBk.push(sn[i][1]);}
   }
   const cur=sn[sn.length-1];
-  const today=new Date().toISOString().slice(0,10);
-  const firstToday=sn.find(s=>s[0].startsWith(today))||cur;
-  const opToday=(cur[1]-firstToday[1])+(cur[2]-firstToday[2]);
+  const today=cur[0].slice(0,10);
+  let opToday=0, clToday=0;
+  for(let i=1;i<sn.length;i++){
+    if(!sn[i][0].startsWith(today))continue;
+    const dc=sn[i][2]-sn[i-1][2], dop=(sn[i][1]-sn[i-1][1])+dc;
+    if(dc>=0&&dop>=0&&dc<5000){opToday+=dop;clToday+=dc;}
+  }
   const kpi=[
     ["Бэклог сейчас",fmt(cur[1]),""],
     ["Открыто сегодня",fmt(opToday),"с первого снапшота"],
-    ["Закрыто сегодня",fmt(cur[2]-firstToday[2]),""],
+    ["Закрыто сегодня",fmt(clToday),""],
     ["Активных ключей",fmt(cur[3]),""],
     ["Close-ratio 7д",(()=>{const t=nd.slice(-7);const o=t.reduce((a,r)=>a+r[1],0),c=t.reduce((a,r)=>a+r[2],0);return o?(100*c/o).toFixed(1)+"%":"—";})(),"закрыто/открыто"],
     ["Бэклог в часах",last&&last[8]!=null?fmt(last[8]):"—","при темпе закрытия 7д"]];
