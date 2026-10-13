@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Support Monitor</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+:root{--bg:#0f1420;--card:#1a2232;--txt:#e8ecf4;--mut:#8b96ab;--acc:#4f8ff7;--ok:#3fbf7f;--warn:#e8a33d;--bad:#e05d5d;--line:#2a3550}
+*{box-sizing:border-box}
+body{margin:0;font:14px/1.45 -apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--txt)}
+#login{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:10}
+#login form{background:var(--card);padding:32px;border-radius:14px;width:320px;display:flex;flex-direction:column;gap:12px}
+#login h1{margin:0 0 8px;font-size:18px}
+input,select,button{font:inherit;border-radius:8px;border:1px solid var(--line);background:#111827;color:var(--txt);padding:9px 12px}
+button{background:var(--acc);border:none;cursor:pointer;font-weight:600}
+button.sec{background:#2a3550}
+#err{color:var(--bad);font-size:13px;min-height:16px;margin:0}
+header{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:14px 20px;border-bottom:1px solid var(--line)}
+header h1{font-size:17px;margin:0 14px 0 0}
+#upd{color:var(--mut);font-size:12px;margin-left:auto}
+nav{display:flex;gap:6px;padding:10px 20px 0}
+nav button{background:transparent;border:1px solid var(--line);color:var(--mut)}
+nav button.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+main{padding:16px 20px;max-width:1280px;margin:0 auto}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px}
+.card{background:var(--card);border-radius:12px;padding:14px}
+.card .v{font-size:24px;font-weight:700;margin-top:2px}
+.card .l{color:var(--mut);font-size:12px}
+.card .s{font-size:12px;margin-top:2px}
+.chartbox{background:var(--card);border-radius:12px;padding:14px;margin-bottom:16px}
+.chartbox h3{margin:0 0 10px;font-size:14px;color:var(--mut);font-weight:600}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{text-align:right;padding:6px 8px;border-bottom:1px solid var(--line)}
+th:first-child,td:first-child{text-align:left}
+th{color:var(--mut);font-weight:600;cursor:default}
+.pos{color:var(--ok)}.neg{color:var(--bad)}.wrn{color:var(--warn)}
+.note{color:var(--mut);font-size:12px;margin:8px 0}
+.hide{display:none}
+@media(max-width:700px){main{padding:10px}header{padding:10px}}
+</style>
+</head>
+<body>
+<div id="login">
+  <form onsubmit="doLogin(event)">
+    <h1>Support Monitor</h1>
+    <input id="lg" placeholder="Логин" autocomplete="username">
+    <input id="pw" type="password" placeholder="Пароль" autocomplete="current-password">
+    <label style="font-size:12px;color:var(--mut)"><input type="checkbox" id="rem" checked> запомнить на этом устройстве</label>
+    <button>Войти</button>
+    <p id="err"></p>
+  </form>
+</div>
+
+<div id="app" class="hide">
+<header>
+  <h1>Support Monitor</h1>
+  <select id="grp" onchange="render()">
+    <option value="all">Все проекты</option>
+    <option value="socket">Socket (без gena/vip)</option>
+    <option value="gena">Gena</option>
+    <option value="vip">VIP</option>
+  </select>
+  <select id="gran" onchange="render()">
+    <option value="day">По дням</option>
+    <option value="week">По неделям</option>
+    <option value="month">По месяцам</option>
+  </select>
+  <span id="upd"></span>
+  <button class="sec" onclick="reload()">Обновить</button>
+  <button class="sec" onclick="logout()">Выйти</button>
+</header>
+<nav>
+  <button data-t="now" class="on" onclick="tab('now')">Сейчас</button>
+  <button data-t="dyn" onclick="tab('dyn')">Тикеты / 1000</button>
+  <button data-t="sla" onclick="tab('sla')">SLA</button>
+  <button data-t="proj" onclick="tab('proj')">Проекты</button>
+</nav>
+<main>
+  <section id="t-now">
+    <div class="cards" id="kpi"></div>
+    <div class="chartbox"><h3>Поток тикетов по получасам (сеть целиком, 14 дней)</h3><canvas id="c-now" height="90"></canvas></div>
+  </section>
+  <section id="t-dyn" class="hide">
+    <div class="chartbox"><h3 id="dyn-title"></h3><canvas id="c-dyn" height="90"></canvas></div>
+    <div class="chartbox"><h3>Таблица (свежие сверху)</h3><div style="max-height:420px;overflow:auto"><table id="tbl-dyn"></table></div></div>
+    <p class="note" id="dyn-note"></p>
+  </section>
+  <section id="t-sla" class="hide">
+    <div class="chartbox"><h3>SLA-прокси сети: доля закрытого день-в-день и бэклог в часах разгребания</h3><canvas id="c-sla" height="90"></canvas></div>
+    <div class="chartbox"><h3>Бэклог по проектам (ежедневные снапшоты, свежие сверху)</h3><div style="max-height:420px;overflow:auto"><table id="tbl-sla"></table></div></div>
+  </section>
+  <section id="t-proj" class="hide">
+    <div class="chartbox"><h3 id="proj-title">Срез за 30 дней</h3><div style="max-height:560px;overflow:auto"><table id="tbl-proj"></table></div></div>
+  </section>
+  <p class="note" id="meta"></p>
+</main>
+</div>
+
+<script>
+let D=null, charts={};
+const $=id=>document.getElementById(id);
+const b64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+
+async function decrypt(encText, login, pass){
+  const o=JSON.parse(encText);
+  const km=await crypto.subtle.importKey("raw",new TextEncoder().encode(login+":"+pass),"PBKDF2",false,["deriveKey"]);
+  const key=await crypto.subtle.deriveKey({name:"PBKDF2",salt:b64(o.salt),iterations:200000,hash:"SHA-256"},km,{name:"AES-GCM",length:256},false,["decrypt"]);
+  const raw=await crypto.subtle.decrypt({name:"AES-GCM",iv:b64(o.iv)},key,b64(o.ct));
+  const ds=new DecompressionStream("gzip");
+  const txt=await new Response(new Blob([raw]).stream().pipeThrough(ds)).text();
+  return JSON.parse(txt);
+}
+async function fetchData(login,pass){
+  const r=await fetch("data.enc?ts="+Date.now(),{cache:"no-store"});
+  if(!r.ok) throw new Error("data.enc: "+r.status);
+  return decrypt(await r.text(),login,pass);
+}
+async function doLogin(e){
+  e&&e.preventDefault();
+  const lg=$("lg").value.trim(),pw=$("pw").value;
+  $("err").textContent="";
+  try{
+    D=await fetchData(lg,pw);
+    if($("rem").checked) localStorage.setItem("smcred",JSON.stringify([lg,pw]));
+    $("login").classList.add("hide");$("app").classList.remove("hide");
+    render();
+  }catch(err){$("err").textContent="Не подошло: "+(err.name==="OperationError"?"неверный логин/пароль":err.message);}
+}
+async function reload(){
+  const c=JSON.parse(localStorage.getItem("smcred")||"null")||[$("lg").value.trim(),$("pw").value];
+  try{D=await fetchData(c[0],c[1]);render();}catch(e){alert("Не обновилось: "+e.message);}
+}
+function logout(){localStorage.removeItem("smcred");location.reload();}
+window.addEventListener("load",async()=>{
+  const c=JSON.parse(localStorage.getItem("smcred")||"null");
+  if(c){try{D=await fetchData(c[0],c[1]);$("login").classList.add("hide");$("app").classList.remove("hide");render();}catch(e){localStorage.removeItem("smcred");}}
+});
+
+function tab(t){
+  document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("on",b.dataset.t===t));
+  ["now","dyn","sla","proj"].forEach(x=>$("t-"+x).classList.toggle("hide",x!==t));
+}
+function chart(id,cfg){if(charts[id])charts[id].destroy();charts[id]=new Chart($(id),cfg);}
+const fmt=n=>n==null?"—":n.toLocaleString("ru-RU");
+
+// --- агрегирование день → неделя/месяц ---
+function bucketKey(day,gran){
+  if(gran==="day")return day;
+  if(gran==="month")return day.slice(0,7);
+  const d=new Date(day+"T00:00:00Z");const mon=new Date(d);mon.setUTCDate(d.getUTCDate()-((d.getUTCDay()+6)%7));
+  return mon.toISOString().slice(0,10);
+}
+function series(group,gran){
+  // возвращает {labels, opened, closed, keys, per1000} (хронологически)
+  let days,opened,closed,keys;
+  if(group==="all"){
+    const nd=D.network_daily;
+    days=nd.map(r=>r[0]);opened=nd.map(r=>r[1]);closed=nd.map(r=>r[2]);keys=nd.map(r=>r[4]);
+  }else{
+    const g=D.groups_daily;days=g.days;
+    opened=g.groups[group].opened;closed=g.groups[group].closed;keys=g.groups[group].keys;
+  }
+  const buckets=new Map();
+  days.forEach((d,i)=>{
+    const k=bucketKey(d,gran);
+    if(!buckets.has(k))buckets.set(k,{o:0,c:0,ks:[],last:null});
+    const b=buckets.get(k);b.o+=opened[i]||0;b.c+=closed[i]||0;
+    if(keys[i]!=null){b.ks.push(keys[i]);b.last=keys[i];}
+  });
+  const labels=[...buckets.keys()];
+  return {labels,
+    opened:labels.map(k=>buckets.get(k).o),
+    closed:labels.map(k=>buckets.get(k).c),
+    keys:labels.map(k=>buckets.get(k).last),
+    per1000:labels.map(k=>{const b=buckets.get(k);const avg=b.ks.length?b.ks.reduce((a,x)=>a+x,0)/b.ks.length:null;return avg?+(b.o*1000/avg).toFixed(1):null;})};
+}
+
+function render(){
+  if(!D)return;
+  $("upd").textContent="Данные: "+D.generated.replace("T"," ");
+  $("meta").textContent=D.meta.notes.join(" · ");
+  const grp=$("grp").value, gran=$("gran").value;
+
+  // --- Сейчас ---
+  const sn=D.snapshots, nd=D.network_daily, last=nd[nd.length-1];
+  const sLab=[],sOp=[],sCl=[],sBk=[];
+  for(let i=1;i<sn.length;i++){
+    const dc=sn[i][2]-sn[i-1][2], db=sn[i][1]-sn[i-1][1], dop=db+dc;
+    if(dc>=0&&dop>=0&&dc<5000){sLab.push(sn[i][0].slice(5));sOp.push(dop);sCl.push(dc);sBk.push(sn[i][1]);}
+  }
+  const cur=sn[sn.length-1];
+  const today=new Date().toISOString().slice(0,10);
+  const firstToday=sn.find(s=>s[0].startsWith(today))||cur;
+  const opToday=(cur[1]-firstToday[1])+(cur[2]-firstToday[2]);
+  const kpi=[
+    ["Бэклог сейчас",fmt(cur[1]),""],
+    ["Открыто сегодня",fmt(opToday),"с первого снапшота"],
+    ["Закрыто сегодня",fmt(cur[2]-firstToday[2]),""],
+    ["Активных ключей",fmt(cur[3]),""],
+    ["Close-ratio 7д",(()=>{const t=nd.slice(-7);const o=t.reduce((a,r)=>a+r[1],0),c=t.reduce((a,r)=>a+r[2],0);return o?(100*c/o).toFixed(1)+"%":"—";})(),"закрыто/открыто"],
+    ["Бэклог в часах",last&&last[8]!=null?fmt(last[8]):"—","при темпе закрытия 7д"]];
+  $("kpi").innerHTML=kpi.map(([l,v,s])=>`<div class="card"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join("");
+  chart("c-now",{data:{labels:sLab,datasets:[
+    {type:"bar",label:"Открыто/30м",data:sOp,backgroundColor:"#4f8ff7aa"},
+    {type:"bar",label:"Закрыто/30м",data:sCl,backgroundColor:"#3fbf7faa"},
+    {type:"line",label:"Бэклог",data:sBk,yAxisID:"y2",borderColor:"#e8a33d",pointRadius:0,borderWidth:2}]},
+    options:{scales:{y:{beginAtZero:true},y2:{position:"right",grid:{display:false}}},plugins:{legend:{labels:{color:"#8b96ab"}}}}});
+
+  // --- Тикеты/1000 ---
+  const S=series(grp,gran);
+  const gname=$("grp").selectedOptions[0].text;
+  $("dyn-title").textContent=`Тикетов на 1000 активных ключей — ${gname}`;
+  chart("c-dyn",{data:{labels:S.labels,datasets:[
+    {type:"line",label:"Тикетов/1000",data:S.per1000,borderColor:"#4f8ff7",pointRadius:gran==="day"?0:2,borderWidth:2},
+    {type:"line",label:"Активных ключей",data:S.keys,yAxisID:"y2",borderColor:"#8b96ab55",pointRadius:0,borderWidth:1.5}]},
+    options:{scales:{y:{beginAtZero:true},y2:{position:"right",grid:{display:false}}},plugins:{legend:{labels:{color:"#8b96ab"}}}}});
+  $("tbl-dyn").innerHTML="<tr><th>Период</th><th>Открыто</th><th>Закрыто</th><th>Ключей</th><th>Тик/1000</th></tr>"+
+    S.labels.map((k,i)=>`<tr><td>${k}</td><td>${fmt(S.opened[i])}</td><td>${fmt(S.closed[i])}</td><td>${fmt(S.keys[i])}</td><td><b>${S.per1000[i]??"—"}</b></td></tr>`).reverse().join("");
+  $("dyn-note").textContent=grp!=="all"?"Группы ключей до "+D.meta.real_groups_since+" — модель из платежей.":"";
+
+  // --- SLA ---
+  const cr=nd.map(r=>r[7]!=null?+(100*r[7]).toFixed(1):null), bh=nd.map(r=>r[8]);
+  chart("c-sla",{data:{labels:nd.map(r=>r[0]),datasets:[
+    {type:"line",label:"Close-ratio, %",data:cr,borderColor:"#3fbf7f",pointRadius:0,borderWidth:2},
+    {type:"line",label:"Бэклог, часов",data:bh,yAxisID:"y2",borderColor:"#e8a33d",pointRadius:0,borderWidth:2}]},
+    options:{scales:{y:{suggestedMin:80,suggestedMax:120},y2:{position:"right",grid:{display:false},beginAtZero:true}},plugins:{legend:{labels:{color:"#8b96ab"}}}}});
+  const sp=D.sla_projects, sdays=[...sp.days].reverse();
+  const plist=Object.keys(sp.projects).sort((a,b)=>{const la=sp.projects[a].at(-1)??0,lb=sp.projects[b].at(-1)??0;return lb-la;});
+  $("tbl-sla").innerHTML="<tr><th>День</th>"+plist.slice(0,15).map(p=>`<th>${p}</th>`).join("")+"</tr>"+
+    sdays.map(d=>{const i=sp.days.indexOf(d);return `<tr><td>${d}</td>`+plist.slice(0,15).map(p=>`<td>${fmt(sp.projects[p][i])}</td>`).join("")+"</tr>";}).join("");
+
+  // --- Проекты ---
+  const pr=D.projects_30d;
+  if(pr){
+    $("proj-title").textContent=`Срез за 30 дней (${pr.range})`;
+    $("tbl-proj").innerHTML="<tr><th>Проект</th><th>Открыто 30д</th><th>Закрыто 30д</th><th>Доля %</th><th>Пред. 30д</th><th>Δ%</th><th>Ключей</th><th>Тик/1000 30д</th></tr>"+
+      pr.rows.map(r=>{const dl=r.openedPrev30d?((r.opened30d-r.openedPrev30d)*100/r.openedPrev30d).toFixed(0):null;
+        return `<tr><td>${r.project}</td><td>${fmt(r.opened30d)}</td><td>${fmt(r.closed30d)}</td><td>${r.sharePct}</td><td>${fmt(r.openedPrev30d)}</td><td class="${dl>10?"neg":dl<-10?"pos":""}">${dl==null?"—":dl+"%"}</td><td>${fmt(r.activeKeys)}</td><td><b>${r.per1000_30d??"—"}</b></td></tr>`;}).join("");
+  }
+}
+</script>
+</body>
+</html>
