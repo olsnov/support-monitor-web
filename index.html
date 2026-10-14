@@ -76,7 +76,7 @@ th{color:var(--mut);font-weight:600;position:sticky;top:0;background:var(--card)
 <main>
   <section id="t-now">
     <div class="cards" id="kpi"></div>
-    <div class="chartbox"><h3>Поток тикетов по получасам против типичного профиля · сеть целиком <span style="font-weight:400">(полупрозрачное — распределено между редкими замерами; закрытия — только в рабочие часы)</span></h3><canvas id="c-now" height="88"></canvas></div>
+    <div class="chartbox"><h3>Поток тикетов по получасам против типичного профиля · сеть целиком <span style="font-weight:400">(полупрозрачное — ночной приток, распределённый равномерно; с 9:00 — рабочий день)</span></h3><canvas id="c-now" height="88"></canvas></div>
   </section>
 
   <section id="t-hist" class="hide">
@@ -259,7 +259,7 @@ function render(){
       sLab.push(ts.slice(5));sTs.push(ts);
       sOp.push(+o.toFixed(1));sCl.push(+c.toFixed(1));
       sBk.push(Math.round(j===nSlots-1?sn[i][1]:bk));
-      sSyn.push(nSlots>1);
+      sSyn.push(nSlots>1&&!isWork(d));  // полупрозрачное — только ночное распределение
     });
   }
   // рабочее окно: часы, в которые реально идут закрытия (детект по снапшотам,
