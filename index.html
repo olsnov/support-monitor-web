@@ -273,6 +273,18 @@ function render(){
       sBk.push(Math.round(bk));sSyn.push(m.syn);
     }
   }
+  // рабочее окно: часы, в которые реально идут закрытия (детект от 3 суток снапшотов)
+  const hourCl={};
+  sTs.forEach((ts,i)=>{const h=+ts.slice(11,13);(hourCl[h]=hourCl[h]||[]).push(sCl[i]);});
+  const snapDays=new Set(sTs.map(t=>t.slice(0,10))).size;
+  let workHours=[9,10,11,12,13,14,15,16,17,18,19,20];
+  if(snapDays>=3){
+    const peak=Math.max(...Object.values(hourCl).map(a=>med(a)||0));
+    const det=Object.keys(hourCl).filter(h=>(med(hourCl[h])||0)>peak*0.1).map(Number).sort((a,b)=>a-b);
+    if(det.length>=6)workHours=det;
+  }
+  const whpd=workHours.length;
+  const wLabel=(snapDays>=3?"детект ":"")+String(workHours[0]).padStart(2,"0")+"–"+String(workHours[workHours.length-1]+1).padStart(2,"0");
   const cur=sn[sn.length-1], todayStr=cur?cur[0].slice(0,10):"";
   const slotVals={};
   sTs.forEach((ts,i)=>{if(ts.slice(0,10)!==todayStr){const sl=ts.slice(11,13)+":"+(+ts.slice(14,16)>=30?"30":"00");(slotVals[sl]=slotVals[sl]||[]).push(sOp[i]);}});
