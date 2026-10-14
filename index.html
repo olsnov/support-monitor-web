@@ -76,7 +76,7 @@ th{color:var(--mut);font-weight:600;position:sticky;top:0;background:var(--card)
 <main>
   <section id="t-now">
     <div class="cards" id="kpi"></div>
-    <div class="chartbox"><h3>Поток тикетов по получасам против типичного профиля · сеть целиком</h3><canvas id="c-now" height="88"></canvas></div>
+    <div class="chartbox"><h3>Поток тикетов по получасам против типичного профиля · сеть целиком <span style="font-weight:400">(полупрозрачное — равномерно распределено между редкими замерами)</span></h3><canvas id="c-now" height="88"></canvas></div>
   </section>
 
   <section id="t-hist" class="hide">
@@ -235,10 +235,22 @@ function render(){
 
   // ---------- Сейчас ----------
   const sn=D.snapshots, nd=D.network_daily, last=nd[nd.length-1];
-  const sLab=[],sOp=[],sCl=[],sBk=[],sTs=[];
+  const sLab=[],sOp=[],sCl=[],sBk=[],sTs=[],sSyn=[];
+  const pTs=s=>new Date(s.replace(" ","T")+":00");
+  const fTs=d=>{const p=n=>String(n).padStart(2,"0");const m=d.getMinutes()>=30?"30":"00";return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${m}`;};
   for(let i=1;i<sn.length;i++){
     const dc=sn[i][2]-sn[i-1][2], dop=(sn[i][1]-sn[i-1][1])+dc;
-    if(dc>=0&&dop>=0&&dc<5000){sLab.push(sn[i][0].slice(5));sOp.push(dop);sCl.push(dc);sBk.push(sn[i][1]);sTs.push(sn[i][0]);}
+    if(!(dc>=0&&dop>=0&&dc<5000))continue;
+    const t1=pTs(sn[i-1][0]), t2=pTs(sn[i][0]);
+    // редкие замеры (ночь, дыры крона) размазываем по пропущенным получасам
+    const nSlots=Math.min(24,Math.max(1,Math.round((t2-t1)/18e5)));
+    for(let k=1;k<=nSlots;k++){
+      const ts=fTs(new Date(t1.getTime()+k*(t2-t1)/nSlots));
+      sLab.push(ts.slice(5));sTs.push(ts);
+      sOp.push(+(dop/nSlots).toFixed(1));sCl.push(+(dc/nSlots).toFixed(1));
+      sBk.push(Math.round(sn[i-1][1]+(sn[i][1]-sn[i-1][1])*k/nSlots));
+      sSyn.push(nSlots>1);
+    }
   }
   // рабочее окно: часы, в которые реально идут закрытия (детект по снапшотам,
   // пока истории < 3 суток — консервативно 09–21)
@@ -273,8 +285,8 @@ function render(){
     ["Тик/1000 вчера",last?(last[5]??"—"):"—","норма "+(robust(nd.slice(-29,-1).map(r=>r[5]))??"—"),""]];
   $("kpi").innerHTML=kpi.map(([l,v,s,c])=>`<div class="card"><div class="l">${l}</div><div class="v ${c}">${v}</div><div class="s">${s}</div></div>`).join("");
   chart("c-now",{data:{labels:sLab,datasets:[
-    {type:"bar",label:"Открыто/30м",data:sOp,backgroundColor:"#4f8ff7aa",borderRadius:3},
-    {type:"bar",label:"Закрыто/30м",data:sCl,backgroundColor:"#3fbf7f66",borderRadius:3},
+    {type:"bar",label:"Открыто/30м",data:sOp,backgroundColor:sSyn.map(s=>s?"#4f8ff74d":"#4f8ff7aa"),borderRadius:3},
+    {type:"bar",label:"Закрыто/30м",data:sCl,backgroundColor:sSyn.map(s=>s?"#3fbf7f33":"#3fbf7f66"),borderRadius:3},
     {type:"line",label:"Типично",data:sTyp,borderColor:"#8b96ab",borderDash:[5,4],pointRadius:0,borderWidth:1.5},
     {type:"line",label:"Бэклог",data:sBk,yAxisID:"y2",borderColor:"#e8a33d",pointRadius:0,borderWidth:2}]},
     options:{scales:{y:{beginAtZero:true},y2:{position:"right",grid:{display:false}}},plugins:{legend:{labels:{color:"#8b96ab",boxWidth:18}}}}});
