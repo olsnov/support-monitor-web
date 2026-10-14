@@ -76,7 +76,7 @@ th{color:var(--mut);font-weight:600;position:sticky;top:0;background:var(--card)
 <main>
   <section id="t-now">
     <div class="cards" id="kpi"></div>
-    <div class="chartbox"><h3>Поток тикетов по получасам против типичного профиля · сеть целиком <span style="font-weight:400">(полупрозрачное — равномерно распределено между редкими замерами)</span></h3><canvas id="c-now" height="88"></canvas></div>
+    <div class="chartbox"><h3>Поток тикетов по получасам против типичного профиля · сеть целиком <span style="font-weight:400">(полупрозрачное — распределено между редкими замерами; закрытия — только в рабочие часы)</span></h3><canvas id="c-now" height="88"></canvas></div>
   </section>
 
   <section id="t-hist" class="hide">
@@ -242,15 +242,25 @@ function render(){
     const dc=sn[i][2]-sn[i-1][2], dop=(sn[i][1]-sn[i-1][1])+dc;
     if(!(dc>=0&&dop>=0&&dc<5000))continue;
     const t1=pTs(sn[i-1][0]), t2=pTs(sn[i][0]);
-    // редкие замеры (ночь, дыры крона) размазываем по пропущенным получасам
+    // редкие замеры (ночь, дыры крона) размазываем по пропущенным получасам:
+    // открытия — равномерно (клиенты пишут круглосуточно),
+    // закрытия — только по рабочим слотам (саппорт с 9:00)
     const nSlots=Math.min(24,Math.max(1,Math.round((t2-t1)/18e5)));
-    for(let k=1;k<=nSlots;k++){
-      const ts=fTs(new Date(t1.getTime()+k*(t2-t1)/nSlots));
+    const slots=[];
+    for(let k=1;k<=nSlots;k++)slots.push(new Date(t1.getTime()+k*(t2-t1)/nSlots));
+    const isWork=d=>{const h=d.getHours();return h>=9&&h<21;};
+    const nWork=slots.filter(isWork).length;
+    let bk=sn[i-1][1];
+    slots.forEach((d,j)=>{
+      const o=dop/nSlots;
+      const c=nWork>0?(isWork(d)?dc/nWork:0):(j===nSlots-1?dc:0);
+      bk+=o-c;
+      const ts=fTs(d);
       sLab.push(ts.slice(5));sTs.push(ts);
-      sOp.push(+(dop/nSlots).toFixed(1));sCl.push(+(dc/nSlots).toFixed(1));
-      sBk.push(Math.round(sn[i-1][1]+(sn[i][1]-sn[i-1][1])*k/nSlots));
+      sOp.push(+o.toFixed(1));sCl.push(+c.toFixed(1));
+      sBk.push(Math.round(j===nSlots-1?sn[i][1]:bk));
       sSyn.push(nSlots>1);
-    }
+    });
   }
   // рабочее окно: часы, в которые реально идут закрытия (детект по снапшотам,
   // пока истории < 3 суток — консервативно 09–21)
