@@ -235,46 +235,44 @@ function render(){
 
   // ---------- Сейчас ----------
   const sn=D.snapshots, nd=D.network_daily, last=nd[nd.length-1];
-  const sLab=[],sOp=[],sCl=[],sBk=[],sTs=[],sSyn=[];
-  const pTs=s=>new Date(s.replace(" ","T")+":00");
-  const fTs=d=>{const p=n=>String(n).padStart(2,"0");const m=d.getMinutes()>=30?"30":"00";return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${m}`;};
+  // раскладка по честной получасовой сетке: приток — равномерно по слотам дыры,
+  // закрытия — только по рабочим слотам (9–21), полупрозрачное — ночное распределение
+  const GRID=18e5, pTs=s=>new Date(s.replace(" ","T")+":00").getTime();
+  const floorG=t=>Math.floor(t/GRID)*GRID;
+  const isWorkH=g=>{const h=new Date(g).getHours();return h>=9&&h<21;};
+  const slotMap=new Map();
   for(let i=1;i<sn.length;i++){
     const dc=sn[i][2]-sn[i-1][2], dop=(sn[i][1]-sn[i-1][1])+dc;
     if(!(dc>=0&&dop>=0&&dc<5000))continue;
     const t1=pTs(sn[i-1][0]), t2=pTs(sn[i][0]);
-    // редкие замеры (ночь, дыры крона) размазываем по пропущенным получасам:
-    // открытия — равномерно (клиенты пишут круглосуточно),
-    // закрытия — только по рабочим слотам (саппорт с 9:00)
-    const nSlots=Math.min(24,Math.max(1,Math.round((t2-t1)/18e5)));
-    const slots=[];
-    for(let k=1;k<=nSlots;k++)slots.push(new Date(t1.getTime()+k*(t2-t1)/nSlots));
-    const isWork=d=>{const h=d.getHours();return h>=9&&h<21;};
-    const nWork=slots.filter(isWork).length;
-    let bk=sn[i-1][1];
-    slots.forEach((d,j)=>{
-      const o=dop/nSlots;
-      const c=nWork>0?(isWork(d)?dc/nWork:0):(j===nSlots-1?dc:0);
-      bk+=o-c;
-      const ts=fTs(d);
-      sLab.push(ts.slice(5));sTs.push(ts);
-      sOp.push(+o.toFixed(1));sCl.push(+c.toFixed(1));
-      sBk.push(Math.round(j===nSlots-1?sn[i][1]:bk));
-      sSyn.push(nSlots>1&&!isWork(d));  // полупрозрачное — только ночное распределение
+    const marks=[];
+    for(let g=floorG(t1)+GRID;g<=floorG(t2);g+=GRID)marks.push(g);
+    if(!marks.length)marks.push(floorG(t2));
+    const syn=marks.length>1;
+    const work=marks.filter(isWorkH);
+    marks.forEach((g,j)=>{
+      const m=slotMap.get(g)||{o:0,c:0,syn:false,anchor:null};
+      m.o+=dop/marks.length;
+      m.c+=work.length?(work.includes(g)?dc/work.length:0):(j===marks.length-1?dc:0);
+      if(syn&&!isWorkH(g))m.syn=true;
+      if(j===marks.length-1)m.anchor=sn[i][1];
+      slotMap.set(g,m);
     });
   }
-  // рабочее окно: часы, в которые реально идут закрытия (детект по снапшотам,
-  // пока истории < 3 суток — консервативно 09–21)
-  const hourCl={}, hourDays={};
-  sTs.forEach((ts,i)=>{const h=+ts.slice(11,13);(hourCl[h]=hourCl[h]||[]).push(sCl[i]);(hourDays[h]=hourDays[h]||new Set()).add(ts.slice(0,10));});
-  const snapDays=new Set(sTs.map(t=>t.slice(0,10))).size;
-  let workHours;
-  if(snapDays>=3){
-    const peak=Math.max(...Object.values(hourCl).map(a=>med(a)||0));
-    workHours=Object.keys(hourCl).filter(h=>(med(hourCl[h])||0)>peak*0.1).map(Number).sort((a,b)=>a-b);
-    if(workHours.length<6)workHours=[9,10,11,12,13,14,15,16,17,18,19,20];
-  }else workHours=[9,10,11,12,13,14,15,16,17,18,19,20];
-  const whpd=workHours.length;
-  const wLabel=(snapDays>=3?"детект ":"")+String(workHours[0]).padStart(2,"0")+"–"+String(workHours[workHours.length-1]+1).padStart(2,"0");
+  const sLab=[],sOp=[],sCl=[],sBk=[],sTs=[],sSyn=[];
+  {
+    const keys=[...slotMap.keys()].sort((a,b)=>a-b);
+    let bk=sn.length?sn[0][1]:0;
+    const fmtG=g=>{const d=new Date(g),p=n=>String(n).padStart(2,"0");return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;};
+    for(const g of keys){
+      const m=slotMap.get(g);
+      bk=m.anchor!=null?m.anchor:bk+m.o-m.c;
+      const ts=fmtG(g);
+      sLab.push(ts.slice(5));sTs.push(ts);
+      sOp.push(+m.o.toFixed(1));sCl.push(+m.c.toFixed(1));
+      sBk.push(Math.round(bk));sSyn.push(m.syn);
+    }
+  }
   const cur=sn[sn.length-1], todayStr=cur?cur[0].slice(0,10):"";
   const slotVals={};
   sTs.forEach((ts,i)=>{if(ts.slice(0,10)!==todayStr){const sl=ts.slice(11,13)+":"+(+ts.slice(14,16)>=30?"30":"00");(slotVals[sl]=slotVals[sl]||[]).push(sOp[i]);}});
@@ -299,7 +297,9 @@ function render(){
     {type:"bar",label:"Закрыто/30м",data:sCl,backgroundColor:sSyn.map(s=>s?"#3fbf7f33":"#3fbf7f66"),borderRadius:3},
     {type:"line",label:"Типично",data:sTyp,borderColor:"#8b96ab",borderDash:[5,4],pointRadius:0,borderWidth:1.5},
     {type:"line",label:"Бэклог",data:sBk,yAxisID:"y2",borderColor:"#e8a33d",pointRadius:0,borderWidth:2}]},
-    options:{scales:{y:{beginAtZero:true},y2:{position:"right",grid:{display:false}}},plugins:{legend:{labels:{color:"#8b96ab",boxWidth:18}}}}});
+    options:{interaction:{mode:"index",intersect:false},
+      scales:{y:{beginAtZero:true,title:{display:true,text:"тикетов за 30 мин",color:"#8b96ab"}},y2:{position:"right",grid:{display:false},title:{display:true,text:"бэклог (очередь)",color:"#e8a33d"}}},
+      plugins:{legend:{labels:{color:"#8b96ab",boxWidth:18}}}}});
 
   // ---------- История ----------
   let S=series(grp,gran);
