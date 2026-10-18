@@ -306,6 +306,8 @@ function render(){
     ["Бэклог",fmt(cur?cur[1]:null),(()=>{const t=nd.slice(-7);const c=t.reduce((a,r)=>a+r[2],0);const rate=c/(7*whpd);return cur&&rate?"≈ "+(cur[1]/rate).toFixed(0)+" раб. ч разгребания ("+rate.toFixed(0)+" закр./раб.ч, окно "+wLabel+")":"";})(),""],
     ["Открыто сегодня",fmt(opToday),"",""],
     ["Тик/1000 вчера",last?(last[5]??"—"):"—","норма "+(robust(nd.slice(-29,-1).map(r=>r[5]))??"—"),""]];
+  const kb=D.keys_breakdown;
+  if(kb)kpi.push(["Активных ключей",fmt(kb.total),kb.paid!=null?"платных "+fmt(kb.paid)+" · триал "+fmt(kb.trial):"",""]);
   $("kpi").innerHTML=kpi.map(([l,v,s,c])=>`<div class="card"><div class="l">${l}</div><div class="v ${c}">${v}</div><div class="s">${s}</div></div>`).join("");
   chart("c-now",{data:{labels:dLab,datasets:[
     {type:"bar",label:"Открыто/30м",data:dOp,backgroundColor:dSyn.map(s=>s?"#4f8ff74d":"#4f8ff7aa"),borderRadius:3},
