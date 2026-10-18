@@ -82,7 +82,8 @@ th{color:var(--mut);font-weight:600;position:sticky;top:0;background:var(--card)
   <section id="t-hist" class="hide">
     <div class="chartbox">
       <h3 style="display:flex;gap:10px;align-items:center"><span id="dyn-title"></span>
-        <span style="margin-left:auto;display:flex;gap:8px">
+        <span style="margin-left:auto;display:flex;gap:8px;align-items:center">
+        <label style="font-weight:400;font-size:13px;color:var(--mut);display:flex;gap:5px;align-items:center;cursor:pointer"><input type="checkbox" id="notrial" onchange="render()">без триалов</label>
         <select id="per" onchange="render()">
           <option value="90" selected>90 дней</option>
           <option value="180">Полгода</option>
@@ -185,12 +186,15 @@ function bucketKey(day,gran){
 }
 function series(group,gran){
   let days,opened,closed,keys;
+  const noTrial=!!($("notrial")&&$("notrial").checked);
   if(group==="all"){
     const nd=D.network_daily;
-    days=nd.map(r=>r[0]);opened=nd.map(r=>r[1]);closed=nd.map(r=>r[2]);keys=nd.map(r=>r[4]);
+    days=nd.map(r=>r[0]);opened=nd.map(r=>r[1]);closed=nd.map(r=>r[2]);
+    keys=nd.map(r=>noTrial?(r[9]??r[4]):r[4]);
   }else{
     const g=D.groups_daily;days=g.days;
-    opened=g.groups[group].opened;closed=g.groups[group].closed;keys=g.groups[group].keys;
+    opened=g.groups[group].opened;closed=g.groups[group].closed;
+    keys=(noTrial&&g.groups[group].keys_paid)?g.groups[group].keys_paid.map((v,i)=>v??g.groups[group].keys[i]):g.groups[group].keys;
   }
   const buckets=new Map();
   days.forEach((d,i)=>{
@@ -338,7 +342,7 @@ function render(){
     {type:"line",label:"Тикетов/1000",data:S.per1000,borderColor:"#4f8ff7",pointRadius:gran==="day"?0:2,borderWidth:2},
     ...(projData?[{type:"line",label:"Прогноз (неполный период)",data:projData,borderColor:"#4f8ff7",borderDash:[6,5],pointRadius:4,pointStyle:"rectRot",borderWidth:2}]:[]),
     {type:"line",label:"Норма (очищ. медиана)",data:S.base,borderColor:"#8b96ab",borderDash:[5,4],pointRadius:0,borderWidth:1.5},
-    {type:"line",label:"Активных ключей",data:S.keys,yAxisID:"y2",borderColor:"#8b96ab33",pointRadius:0,borderWidth:1.5}]},
+    {type:"line",label:$("notrial").checked?"Платных ключей":"Активных ключей",data:S.keys,yAxisID:"y2",borderColor:"#8b96ab33",pointRadius:0,borderWidth:1.5}]},
     options:{scales:{y:{beginAtZero:true},y2:{position:"right",grid:{display:false}}},plugins:{legend:{labels:{color:"#8b96ab",boxWidth:18}}}}});
   const rows=S.labels.map((k,i)=>({k,i})).reverse();
   const shown=dynAll?rows:rows.slice(0,14);
